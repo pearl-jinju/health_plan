@@ -6,7 +6,13 @@ import {swipeDirection,tempoOptions,tempoPhases,tempoProfile} from './tempo.mjs'
 const root=document.querySelector('main');
 const status=document.querySelector('#status');
 const notify=message=>{status.textContent=message;};
-const audio=coach(dispatch,()=>token(data?.active),notify);
+let headsetStatus='이어폰 다시 연결을 눌러 Chrome 미디어를 켤 수 있습니다.';
+function showHeadsetStatus(message){
+ headsetStatus=message;
+ const indicator=document.querySelector('#headset-status');
+ if(indicator)indicator.textContent=message;
+}
+const audio=coach(dispatch,()=>token(data?.active),notify,showHeadsetStatus);
 let data, page='today', setupTab='goal', routine='가슴만', plans=[], editPlan=0, editSet=0;
 let recordDay=null, summaryExercise=null;
 let draft=null, detail=null, filter='bench', graphWeight=null, timer, sequence=0, busy=false, swallowClickUntil=0;
@@ -77,12 +83,12 @@ function render(){
   const preparing=phase==='ready'?(session.rests?'휴식 시간 종료':'운동 준비 완료'):labels[phase];
   root.innerHTML='<section class="session-heading"><div class="eyebrow">'+preparing+'</div><h1>'+exercises[set.exercise][0]+'</h1><p>'+weightLabel(set.exercise,set.weight)+' · '+set.number+'세트 · 목표 '+set.reps+'회</p></section>'+
    (phase==='answer'?'<div class="adjust-pair">'+adjuster('weight',draft.weight,set.exercise,'actual')+adjuster('reps',draft.reps,set.exercise,'actual')+'</div>':
-   phase==='ready'?'<div class="ready-prompt card"><strong>이어폰의 ‘다음 곡’으로 시작</strong><p>준비되면 신호를 보내세요.</p></div>':
+   phase==='ready'?'<div class="ready-prompt card"><strong>이어폰의 ‘다음 곡’으로 시작</strong><p id="headset-status" role="status">'+headsetStatus+'</p></div>':
    '<div class="counter card"><strong id="counter">'+number+'</strong><small>'+(visiblePhase==='rest'?'남은 시간 · 초':'반복')+'</small>'+
    (motion?'<div class="motion-label">'+motion.label+'</div>':'')+'</div>')+
    '<div class="actions">'+button('primary',primary,'accent')+(phase==='target'?button('editActual','실제 기록 수정'):'')+
    (phase==='rest'||(phase==='ready'&&session.rests)?button('extendRest','휴식 +30초'):'')+
-   (['count','rest'].includes(phase)?button('pause','일시정지'):'')+button('unlock','오디오 활성화')+button('stop','중단')+'</div>';
+   (['count','rest'].includes(phase)?button('pause','일시정지'):'')+button('unlock','이어폰 다시 연결')+button('stop','중단')+'</div>';
   return;
  }
  if(page==='today'){
@@ -292,6 +298,7 @@ document.addEventListener('click',async event=>{
  else if(action==='start'){
   const included=plans.filter(p=>p.enabled).map(plan=>({...plan,tempo:exerciseTempos[plan.exercise]}));
   if(!included.length){notify('진행할 종목을 선택하세요.');return;}
+  notify('');
   audio.unlock();
   busy=true;
   const session=createSession(included,{id:crypto.randomUUID(),date:today(),...settings});

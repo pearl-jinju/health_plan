@@ -6,6 +6,7 @@ async function withBrowser(run) {
  const cues=[];
  const commands=[];
  const messages=[];
+ const statuses=[];
  const handlers=new Map();
  const utterances=[];
  const recognizers=[];
@@ -66,9 +67,9 @@ async function withBrowser(run) {
   return [name,previous];
  });
  try{
-  const audio=coach(action=>commands.push(action),()=>null,message=>messages.push(message));
+  const audio=coach(action=>commands.push(action),()=>null,message=>messages.push(message),message=>statuses.push(message));
   await run({
-   audio,cues,commands,messages,handlers,utterances,recognizers,
+   audio,cues,commands,messages,statuses,handlers,utterances,recognizers,carrier,document:values.document,mediaSession:values.navigator.mediaSession,
    get resumeCalls(){return resumeCalls;},
    get carrierPlayCalls(){return carrierPlayCalls;},
    get speechCancelCalls(){return speechCancelCalls;}
@@ -89,6 +90,36 @@ test('preview unlocks cue playback without playing the media carrier',async()=>{
   assert.equal(browser.cues.length,1);
   assert.ok(browser.cues[0].frequency.value>0);
   assert.equal(browser.carrierPlayCalls,0);
+ });
+});
+test('a delivered next key works after media pauses and background next never advances',async()=>{
+ await withBrowser(async browser=>{
+  browser.audio.run(true);
+  assert.equal(await browser.audio.unlock(),true);
+  assert.equal(browser.mediaSession.playbackState,'playing');
+  browser.carrier.pause();
+  browser.handlers.get('nexttrack')();
+  assert.deepEqual(browser.commands,[{type:'next'}]);
+  assert.match(browser.statuses.at(-1),/다음 곡 신호를 받았습니다/);
+  browser.document.visibilityState='hidden';
+  browser.handlers.get('nexttrack')();
+  assert.equal(browser.commands.length,1);
+  browser.audio.run(false);
+  assert.equal(browser.mediaSession.playbackState,'none');
+ });
+});
+test('headset test distinguishes play and pause from next without advancing a workout',async()=>{
+ await withBrowser(async browser=>{
+  browser.audio.check();
+  assert.match(browser.messages.at(-1),/다음 곡 동작/);
+  browser.handlers.get('play')();
+  assert.match(browser.messages.at(-1),/^재생 신호/);
+  browser.handlers.get('pause')();
+  assert.match(browser.messages.at(-1),/^일시정지 신호/);
+  browser.handlers.get('nexttrack')();
+  assert.match(browser.messages.at(-1),/^다음 곡 신호/);
+  assert.equal(browser.carrier.paused,true);
+  assert.deepEqual(browser.commands,[]);
  });
 });
 
