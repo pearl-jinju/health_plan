@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createSession,advance,token,restored,volume,recommend,statistics,revise,parseVoice,replacements,adjust} from './core.mjs';
-const make=(id='a',date='2026-11-18',exercise='bench')=>createSession([{exercise,sets:Array.from({length:3},()=>({weight:40,reps:10}))}],{id,date});
+import {swipeDirection,tempoPhases,tempoProfile} from './tempo.mjs';
+const prepare=(id='a',date='2026-11-18',exercise='bench')=>createSession([{exercise,sets:Array.from({length:3},()=>({weight:40,reps:10}))}],{id,date});
+const make=(...input)=>advance(prepare(...input),{type:'next'},0);
+const pulse=(s,now=s.motion?.deadline??0)=>advance(s,{type:'tick'},now);
 const count=s=>{
- for(let i=s.rep;i<s.sets[s.index].reps;i++)s=advance(s,{type:'tick'},0);
- return advance(s,{type:'countEnd'},0);
+ while(s.phase==='count')s=pulse(s);
+ return s;
 };
 const complete=(s,last=10)=>{
  s=advance(count(s),{type:'next'},0);
@@ -49,12 +52,13 @@ test('simultaneous and stale completions cannot skip rest',()=>{
 });
 test('pause at rep three and restore remaining rest',()=>{
  let s=make();
- for(let i=0;i<3;i++)s=advance(s,{type:'tick'},0);
- s=restored(s,10);
+ while(s.rep<3)s=pulse(s);
+ s=restored(s,s.motion.deadline-1000);
  assert.equal(s.phase,'paused');
  assert.equal(advance(s,{type:'next'},20),s);
  s=advance(s,{type:'resume'},50);
- s=advance(s,{type:'tick'},100);
+ assert.equal(s.motion.deadline,1050);
+ while(s.rep<4)s=pulse(s);
  assert.equal(s.rep,4);
  const rest=advance(count(s),{type:'next'},0);
  const paused=advance(rest,{type:'pause'},20000);
@@ -101,4 +105,69 @@ test('replacement role and Korean commands',()=>{
  assert.deepEqual(parseVoice('휴식 끝'),{type:'restEnd'});
  assert.deepEqual(parseVoice('8회 완료'),{type:'actual',reps:8});
  assert.equal(parseVoice('1세트 완료. 2세트 남았습니다'),undefined);
+});
+test('exercise profiles order the lifts differently and snapshot overrides',()=>{
+ assert.deepEqual(tempoPhases('bench').map(x=>[x.label,x.seconds]),[['내리기',3],['아래에서 멈춤',1],['밀기',1]]);
+ assert.deepEqual(tempoPhases('row').map(x=>[x.label,x.seconds]),[['당기기',1],['당긴 채 멈춤',1],['팔 펴기',2]]);
+ assert.notDeepEqual(tempoPhases('bench'),tempoPhases('row'));
+ const seconds=[2,0,0.5,0];
+ const session=createSession([{exercise:'bench',sets:[{weight:40,reps:1}],tempo:seconds},{exercise:'row',sets:[{weight:25,reps:1}]}],{id:'tempo',date:'2026-11-19'});
+ seconds[0]=8;
+ assert.deepEqual(session.sets.map(set=>set.tempo),[[2,0,0.5,0],[1,1,2,0]]);
+ assert.equal(tempoProfile('body',[0,-1,'1',9])[0].seconds,2);
+});
+test('motion deadlines skip disabled holds and do not advance before the last phase ends',()=>{
+ let s=createSession([{exercise:'bench',sets:[{weight:40,reps:1}],tempo:[3,0,1,0]}],{id:'tempo',date:'2026-11-19'});
+ s=advance(s,{type:'next'},90);
+ s=pulse(s,100);
+ assert.deepEqual(s.motion,{index:0,deadline:3100});
+ assert.equal(pulse(s,3099),s);
+ s=pulse(s,3100);
+ assert.deepEqual(s.motion,{index:1,deadline:4100});
+ assert.equal(s.rep,1);
+ assert.equal(pulse(s,4099),s);
+ s=pulse(s,4100);
+ assert.equal(s.phase,'target');
+ assert.equal(s.sets[0].confirmed,undefined);
+});
+test('a delayed cue starts only a single phase and pause preserves its remaining time',()=>{
+ let s=pulse(make(),100);
+ s=pulse(s,10000);
+ assert.deepEqual(s.motion,{index:1,deadline:11000});
+ s=restored(s,10400);
+ assert.equal(s.remaining,600);
+ assert.equal(s.motion.index,1);
+ s=advance(s,{type:'resume'},20000);
+ assert.equal(pulse(s,20599),s);
+ s=pulse(s,20600);
+ assert.equal(s.motion.index,2);
+ assert.equal(s.rep,1);
+});
+test('one horizontal sweep has one direction and a vertical sweep has none',()=>{
+ assert.equal(swipeDirection(120,5),1);
+ assert.equal(swipeDirection(-70,10),-1);
+ assert.equal(swipeDirection(18,4),0);
+ assert.equal(swipeDirection(55,70),0);
+});
+test('starting a session primes the first set and waits for a start command',()=>{
+ const s=prepare();
+ assert.equal(s.phase,'ready');
+ assert.equal(s.rep,0);
+ assert.equal(pulse(s,15000),s);
+ assert.equal(advance(s,{type:'expire'},15000),s);
+ assert.equal(advance(s,{type:'next'},15000).phase,'count');
+});
+test('rest can be lengthened during or after its timer without starting a set',()=>{
+ const first=advance(count(make()),{type:'next'},1000);
+ const extra=advance(first,{type:'extendRest'},3000);
+ assert.equal(extra.deadline,91000);
+ assert.equal(extra.rests,1);
+ assert.equal(advance(extra,{type:'expire'},61000),extra);
+ const ready=advance(extra,{type:'expire'},91000);
+ assert.equal(ready.phase,'ready');
+ assert.equal(pulse(ready,100000),ready);
+ const more=advance(ready,{type:'extendRest'},101000);
+ assert.equal(more.deadline,131000);
+ assert.equal(more.rests,1);
+ assert.equal(advance(more,{type:'next'},102000).phase,'count');
 });

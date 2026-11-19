@@ -1,3 +1,5 @@
+import {tempoPhases,tempoProfile} from './tempo.mjs';
+
 export const exercises = {
  bench: ['벤치프레스','가슴','바벨','양손 합계',1,2.5,'수평 밀기'],
  press: ['머신 체스트 프레스','가슴','머신','표시 중량',1,5,'수평 밀기'],
@@ -20,20 +22,40 @@ export const routines = {'가슴만':['bench','incline','fly'],'가슴·삼두':
 export const replacements = key => Object.keys(exercises).filter(id => exercises[id][1]===exercises[key][1] && exercises[id][6]===exercises[key][6]);
 export const current = session => session?.sets[session.index];
 export const token = session => session && [session.id,current(session)?.id,session.phase,session.version].join('/');
-export function createSession(plans, {id,date,rest=60,tempo=3,cues=false}) {
- return {id,date,rest,tempo,cues,phase:'count',index:0,rep:0,version:0,rests:0,sets:plans.flatMap(({exercise,sets})=>sets.map(({weight,reps},i)=>({exercise,number:i+1,weight,reps}))).map((set,i)=>({...set,id:id+'/'+i}))};
+export function createSession(plans, {id,date,rest=60,cues=false}) {
+ const sets=plans.flatMap(({exercise,sets,tempo})=>{
+  const seconds=tempoProfile(exercise,tempo).map(phase=>phase.seconds);
+  return sets.map(({weight,reps},i)=>({exercise,number:i+1,weight,reps,tempo:seconds}));
+ }).map((set,i)=>({...set,id:id+'/'+i}));
+ return {id,date,rest,cues,phase:'ready',index:0,rep:0,motion:null,version:0,rests:0,sets};
 }
 export function advance(s, action, now=Date.now()) {
  if (!s || (action.token && action.token!==token(s)) || ['done','stopped'].includes(s.phase)) return s;
  const set=current(s);
- const change=(phase,fields={})=>({...s,...fields,phase,version:s.version+1});
+ const change=(phase,fields={})=>({...s,motion:null,...fields,phase,version:s.version+1});
  if(action.type==='stop') return change('stopped');
- if(action.type==='pause' && ['count','rest'].includes(s.phase)) return change('paused',{previous:s.phase,remaining:s.phase==='rest'?Math.max(0,s.deadline-now):null,deadline:null});
- if(action.type==='resume' && s.phase==='paused') return change(s.previous,{deadline:s.previous==='rest'?now+s.remaining:null,remaining:null});
+ if(action.type==='pause' && ['count','rest'].includes(s.phase)){
+  const deadline=s.phase==='rest'?s.deadline:s.motion?.deadline;
+  const remaining=Number.isFinite(deadline)?Math.max(0,deadline-now):null;
+  return change('paused',{previous:s.phase,remaining,deadline:null,motion:s.motion&&{...s.motion,deadline:null}});
+ }
+ if(action.type==='resume' && s.phase==='paused'){
+  const deadline=now+(s.remaining??0);
+  return change(s.previous,{deadline:s.previous==='rest'?deadline:null,remaining:null,motion:s.motion&&{...s.motion,deadline}});
+ }
  if(s.phase==='paused') return s;
- if(action.type==='tick' && s.phase==='count' && s.rep<set.reps) return {...s,rep:s.rep+1};
- if(action.type==='countEnd' && s.phase==='count' && s.rep===set.reps) return change('target');
+ if(action.type==='tick' && s.phase==='count'){
+  if(s.motion && now<s.motion.deadline)return s;
+  const phases=tempoPhases(set.exercise,set.tempo);
+  const index=s.motion?(s.motion.index+1)%phases.length:0;
+  const rep=s.rep+(index===0?1:0);
+  if(rep>set.reps)return change('target');
+  return {...s,rep,motion:{index,deadline:now+phases[index].seconds*1000}};
+ }
  if(action.type==='expire' && s.phase==='rest' && now>=s.deadline) return change('ready',{deadline:null});
+ if(action.type==='extendRest' && (s.phase==='rest'||(s.phase==='ready'&&s.rests>0))){
+  return change('rest',{deadline:Math.max(now,s.deadline??0)+30000});
+ }
  if(action.type==='restEnd' && s.phase!=='rest') return s;
  if(action.type==='next' || action.type==='restEnd'){
   if(s.phase==='ready' || s.phase==='rest'){
