@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: health-agent
+    runtime: static
+    buildCommand: python3 build.py
+    staticPublishPath: ./dist
