@@ -2,8 +2,11 @@ import {exercises,routines,replacements,current,token,createSession,advance,adju
 import {load,save} from './storage.mjs';
 import {coach} from './audio.mjs';
 import {swipeDirection,tempoOptions,tempoPhases,tempoProfile} from './tempo.mjs';
+import {defaultCountVoice,normalizeCountVoice} from './count-voice.mjs';
+import {createSummaryAd} from './adfit.mjs';
 
 const root=document.querySelector('main');
+const summaryAd=createSummaryAd(document.querySelector('#summary-ad'),root);
 const status=document.querySelector('#status');
 const notify=message=>{status.textContent=message;};
 let headsetStatus='이어폰 다시 연결을 눌러 Chrome 미디어를 켤 수 있습니다.';
@@ -16,10 +19,15 @@ const audio=coach(dispatch,()=>token(data?.active),notify,showHeadsetStatus);
 let data, page='today', setupTab='goal', routine='가슴만', plans=[], editPlan=0, editSet=0;
 let recordDay=null, summaryExercise=null;
 let draft=null, detail=null, filter='bench', graphWeight=null, timer, sequence=0, busy=false, swallowClickUntil=0;
-const settings={rest:60,cues:false};
+const settings={rest:60,cues:false,countVoice:defaultCountVoice};
 const tempoKey='health-agent.exercise-tempos';
+const countVoiceKey='health-agent.count-voice';
+const adsKey='health-agent.show-ads';
 let exerciseTempos={};
+let showAds=true;
 try{exerciseTempos=JSON.parse(localStorage.getItem(tempoKey))??{};}catch{}
+try{settings.countVoice=normalizeCountVoice(localStorage.getItem(countVoiceKey));}catch{}
+try{showAds=localStorage.getItem(adsKey)!=='off';}catch{}
 const labels={count:'카운트 중',target:'목표 안내 완료',answer:'실제 기록 확인',rest:'휴식 중',ready:'다음 세트 준비',paused:'일시정지'};
 const today=()=>new Intl.DateTimeFormat('sv-SE').format(new Date());
 const weightLabel=(key,value)=>exercises[key][2]==='맨몸'?'맨몸':(exercises[key][3]==='한 손'?'한 손 ':'')+value+'kg';
@@ -68,10 +76,23 @@ function tempoSettings(key){
    tempoOptions(slot).map(value=>'<option value="'+value+'" '+(value===seconds?'selected':'')+'>'+(!value?'없음':value+'초')+'</option>').join('')+'</select></label>').join('')+'</div>'+
   '<div class="tempo-actions">'+button('previewTempo','신호음 듣기')+'<label><input type="checkbox" data-setting="cues" '+(settings.cues?'checked':'')+'> 동작 이름도 읽기</label></div></section>';
 }
+function populateCountVoices(){
+ const select=root.querySelector('[data-count-voice]');
+ if(!select)return;
+ const options=audio.countVoices();
+ if(!options.some(({id})=>id===settings.countVoice))options.push({id:settings.countVoice,label:'저장한 음성 · 현재 사용 불가'});
+ select.replaceChildren(...options.map(({id,label})=>new Option(label,id,false,id===settings.countVoice)));
+ root.querySelector('#count-voice-description').textContent=audio.hasTrainerClips()?
+  '남성 트레이너 AI 음성으로 1회부터 20회까지 읽습니다. 그 이후에는 기기의 한국어 음성으로 이어집니다.':
+  '트레이너 톤은 낮고 또렷하게 카운트를 읽습니다. 음색은 기기의 한국어 음성에 따라 달라집니다.';
+}
+window.speechSynthesis?.addEventListener?.('voiceschanged',populateCountVoices);
+
 function render(){
  if(!data)return;
  const session=data.active;
  const set=current(session);
+ if(session||page!=='summary')summaryAd.update(null);
  root.dataset.view=session?'active':page;
  document.querySelectorAll('nav button').forEach(el=>el.classList.toggle('selected',el.dataset.action===page));
  if(session){
@@ -96,7 +117,7 @@ function render(){
   const proposal=recommend(data.history,plan.exercise);
   const selectOption=(value,label,chosen)=>'<option value="'+value+'" '+(chosen?'selected':'')+'>'+label+'</option>';
   const routineOptions=Object.keys(routines).map(name=>selectOption(name,name,name===routine)).join('');
-  const tabs=[['goal','목표'],['tempo','템포'],['rest','휴식·안내']].map(([id,label])=>button('setup:'+id,label,id===setupTab?'selected':'')).join('');
+  const tabs=[['goal','목표'],['tempo','템포'],['voice','음성'],['rest','휴식']].map(([id,label])=>button('setup:'+id,label,id===setupTab?'selected':'')).join('');
   const selector='<div class="setup-top"><label>루틴 <select data-routine>'+routineOptions+'</select></label>'+
    '<label>종목 <select data-plan>'+plans.map((p,i)=>selectOption(i,exercises[p.exercise][0],i===editPlan)).join('')+'</select></label></div>';
   const fields='<div class="setup-top current-plan"><label><input type="checkbox" data-enable="'+editPlan+'" '+(plan.enabled?'checked':'')+'> 운동 포함</label>'+
@@ -108,11 +129,14 @@ function render(){
    (proposal?button('setup:recommend','지난 추천'):'')+'</div>';
   const rest='<section class="card option-page"><h2>기본 휴식</h2><label><select data-setting="rest">'+[30,60,90,120].map(n=>selectOption(n,n+'초',n===settings.rest)).join('')+'</select></label>'+
    '<p>타이머가 끝나면 이어폰의 ‘다음 곡’ 신호를 기다립니다. 운동 화면에서 휴식을 30초씩 추가할 수 있습니다.</p>'+button('headphones','이어폰 버튼 확인')+'</section>';
+  const voice='<section class="card count-voice"><h2>카운트 음성</h2><div class="count-voice-controls"><select data-count-voice aria-label="카운트 음성"></select>'+
+   button('previewCount','미리 듣기')+'</div><p id="count-voice-description"></p></section>';
   const suggested=proposal?'<section class="card option-page"><h2>지난 기록 기준 추천</h2><strong>'+weightLabel(plan.exercise,proposal.weight)+' × '+proposal.reps+'회</strong><p>'+proposal.reason+'</p>'+
    button('propose','이 종목에 적용','accent')+'</section>':goals;
-  const body={goal:goals,tempo:tempoSettings(plan.exercise),rest,recommend:suggested}[setupTab];
+  const body={goal:goals,tempo:tempoSettings(plan.exercise),voice,rest,recommend:suggested}[setupTab];
   root.innerHTML=selector+'<div class="setup-tabs" aria-label="운동 설정">'+tabs+'</div>'+body+
    '<div class="actions setup-footer">'+button('start','운동 준비','accent')+'</div>';
+  if(setupTab==='voice'){populateCountVoices();void audio.loadCountFiles().then(populateCountVoices);}
   return;
  }
  if(page==='summary'){
@@ -128,11 +152,14 @@ function render(){
     rows.slice(0,4).map(x=>weightLabel(key,x.actualWeight)+' × '+x.actualReps+'회').join(' · ')+(rows.length>4?' 외 '+(rows.length-4)+'세트':'')+'</p>'+
     '<strong>다음 권장 '+weightLabel(key,proposal.weight)+' × '+proposal.reps+'회</strong><p>'+proposal.reason+'</p></section>':'')+
    '<div class="actions setup-footer">'+button('records','성장 기록 보기','accent')+'</div>';
+  summaryAd.update(showAds&&last.phase==='done'?last.id:null);
   return;
  }
  if(page==='settings'){
   root.innerHTML='<h1>설정</h1><div class="card"><h2>음성 명령</h2><p>기능을 켜면 마이크를 사용합니다. 음성이 브라우저 음성 인식 서비스로 전송될 수 있습니다. 앱은 원본 음성을 저장하지 않습니다.</p>'+
-   button('voice','음성 명령 켜기 / 끄기')+'</div><p>운동 기록은 이 브라우저에 저장됩니다. 사이트 데이터를 삭제하면 기록이 사라질 수 있습니다.</p>';
+   button('voice','음성 명령 켜기 / 끄기')+'</div><p>운동 기록은 이 브라우저 프로필에 저장됩니다. 사이트 데이터를 삭제하면 기록이 사라질 수 있습니다.</p>'+
+   '<div class="card"><label><input type="checkbox" data-show-ads '+(showAds?'checked':'')+'> 완료 화면 광고 표시</label>'+
+   '<p>화면에 여유가 있으면 카카오 애드핏 배너가 표시됩니다.</p></div>';
   return;
  }
  const weights=[...new Set(data.history.flatMap(s=>s.sets.filter(x=>x.confirmed&&x.exercise===filter).map(x=>x.actualWeight)))].sort((a,b)=>a-b);
@@ -209,7 +236,7 @@ async function dispatch(action){
   render();
   if(motionTick){
    const motion=tempoPhases(set.exercise,set.tempo)[next.motion.index];
-   if(next.motion.index===0)void audio.say(next.rep+'회'+(next.cues?' '+motion.label:''));
+   if(next.motion.index===0)void audio.count(next.rep,next.countVoice,next.cues?motion.label:'');
    else if(next.cues)void audio.say(motion.label);
    audio.cue(motion.slot);
    schedule(next);
@@ -292,14 +319,16 @@ document.addEventListener('click',async event=>{
   plan.sets=plan.sets.map(()=>({weight,reps:Math.max(1,reps)}));
   setupTab='goal';
  }else if(action==='previewTempo')audio.preview();
+ else if(action==='previewCount')void audio.previewCount(settings.countVoice);
  else if(action==='headphones')audio.check();
  else if(action==='voice')audio.voice();
- else if(action==='unlock')audio.unlock();
+ else if(action==='unlock')audio.unlock(data.active?.countVoice);
  else if(action==='start'){
   const included=plans.filter(p=>p.enabled).map(plan=>({...plan,tempo:exerciseTempos[plan.exercise]}));
   if(!included.length){notify('진행할 종목을 선택하세요.');return;}
   notify('');
-  audio.unlock();
+  audio.silence();
+  audio.unlock(settings.countVoice);
   busy=true;
   const session=createSession(included,{id:crypto.randomUUID(),date:today(),...settings});
   try{
@@ -310,7 +339,7 @@ document.addEventListener('click',async event=>{
   finally{busy=false;}
  }else if(action==='primary'){
   const phase=data.active.phase;
-  if(phase==='paused'){audio.unlock();return dispatch({type:'resume'});}
+  if(phase==='paused'){audio.unlock(data.active.countVoice);return dispatch({type:'resume'});}
   return dispatch(phase==='answer'?{type:'actual',...draft}:{type:'next'});
  }else if(action==='stop'){if(confirm('운동을 중단할까요? 확정 세트는 보관됩니다.'))return dispatch({type:'stop'});}
  else if(['pause','editActual','extendRest'].includes(action))return dispatch({type:action});
@@ -326,6 +355,11 @@ document.addEventListener('click',async event=>{
 });
 document.addEventListener('change',event=>{
  const el=event.target;
+ if('showAds' in el.dataset){
+  showAds=el.checked;
+  try{localStorage.setItem(adsKey,showAds?'on':'off');}
+  catch{notify('이번 접속 중에만 광고 설정을 적용합니다.');}
+ }
  if('routine' in el.dataset)chooseRoutine(el.value);
  if('plan' in el.dataset){editPlan=Number(el.value);editSet=0;}
  if('targetSet' in el.dataset)editSet=Number(el.value);
@@ -342,6 +376,12 @@ document.addEventListener('change',event=>{
   plan.sets=plan.sets.map(s=>({...s,weight:el.value==='bench'?40:0}));
  }
  if(el.dataset.setting)settings[el.dataset.setting]=el.type==='checkbox'?el.checked:Number(el.value);
+ if('countVoice' in el.dataset){
+  settings.countVoice=normalizeCountVoice(el.value);
+  try{localStorage.setItem(countVoiceKey,settings.countVoice);}
+  catch{notify('이번 운동에는 음성을 적용합니다. 브라우저에 설정을 저장할 수 없습니다.');}
+  return;
+ }
  if('tempoSlot' in el.dataset){
   const key=plans[editPlan].exercise;
   const seconds=tempoProfile(key,exerciseTempos[key]).map(phase=>phase.seconds);

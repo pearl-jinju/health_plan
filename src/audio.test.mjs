@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {coach} from './audio.mjs';
+import {countVoiceOptions,countVoiceProfile,countWords} from './count-voice.mjs';
 
-async function withBrowser(run) {
+const standardVoice={lang:'ko-KR',voiceURI:'ko-default',name:'한국어 표준',default:true};
+const maleVoice={lang:'ko-KR',voiceURI:'ko-KR-InJoonNeural',name:'Microsoft InJoon Online (Natural) - Korean (Korea)'};
+
+async function withBrowser(run,{voices=[standardVoice,maleVoice],clips=[]}={}) {
  const cues=[];
+ const sources=[];
  const commands=[];
  const messages=[];
  const statuses=[];
@@ -37,6 +42,12 @@ async function withBrowser(run) {
   createGain(){
    return {gain:{setValueAtTime(){},linearRampToValueAtTime(){}},connect(){},disconnect(){}};
   }
+  async decodeAudioData(bytes){return {bytes};}
+  createBufferSource(){
+   const source={connect(){},disconnect(){},start(){this.started=true;},stop(){this.stopped=true;}};
+   sources.push(source);
+   return source;
+  }
  }
  const carrier={
   paused:true,
@@ -51,9 +62,10 @@ async function withBrowser(run) {
     start(){recognizers.push(this);}
     abort(){this.stopped=true;}
    },
+   fetch:async url=>url.pathname.endsWith('/manifest.json')?{ok:true,json:async()=>clips}:{ok:true,arrayBuffer:async()=>url.pathname.split('/').at(-1)},
    SpeechSynthesisUtterance:class {constructor(text){this.text=text;}},
    speechSynthesis:{
-    getVoices:()=>[{lang:'ko-KR'}],
+    getVoices:()=>voices,
     speak:utterance=>utterances.push(utterance),
     cancel:()=>{speechCancelCalls++;}
    }
@@ -69,7 +81,7 @@ async function withBrowser(run) {
  try{
   const audio=coach(action=>commands.push(action),()=>null,message=>messages.push(message),message=>statuses.push(message));
   await run({
-   audio,cues,commands,messages,statuses,handlers,utterances,recognizers,carrier,document:values.document,mediaSession:values.navigator.mediaSession,
+   audio,cues,sources,commands,messages,statuses,handlers,utterances,recognizers,carrier,document:values.document,mediaSession:values.navigator.mediaSession,
    get resumeCalls(){return resumeCalls;},
    get carrierPlayCalls(){return carrierPlayCalls;},
    get speechCancelCalls(){return speechCancelCalls;}
@@ -173,4 +185,62 @@ test('tempo tones allow ongoing voice recognition; spoken guidance suppresses la
   browser.audio.run(false);
   await speaking;
  });
+});
+
+test('rep counts use native Korean words through 99 and spoken Korean numbers up to 999',()=>{
+ assert.deepEqual([1,2,3,4,10,11,20,21,99,100,112,999].map(countWords),
+  ['하나','둘','셋','넷','열','열하나','스물','스물하나','아흔아홉','백','백십이','구백구십구']);
+ assert.equal(countWords(0),'');
+ assert.equal(countWords(2.5),'');
+});
+
+test('the count voice list includes device Korean options and chooses only identified male voices first',()=>{
+ const english={lang:'en-US',voiceURI:'english-male',name:'English male'};
+ const koreanFemale={lang:'ko-KR',voiceURI:'ko-female',name:'Korean female'};
+ const voices=[english,koreanFemale,standardVoice,maleVoice,maleVoice];
+ assert.deepEqual(countVoiceOptions(voices).map(option=>option.id),['trainer','standard','browser:ko-female','browser:ko-default','browser:ko-KR-InJoonNeural']);
+ assert.equal(countVoiceOptions(voices,true)[0].label,'남성 트레이너 (AI 음성)');
+ assert.equal(countVoiceProfile('trainer',voices).voice,maleVoice);
+ assert.equal(countVoiceProfile('trainer',[koreanFemale,standardVoice]).voice,standardVoice);
+ assert.ok(countVoiceProfile('trainer',[standardVoice]).pitch<1);
+ assert.deepEqual(countVoiceProfile('browser:ko-female',voices),{voice:koreanFemale,pitch:1,rate:1});
+ assert.equal(countVoiceProfile('browser:removed',voices).voice,maleVoice);
+});
+
+test('the preview uses the selected device voice and does not play the workout carrier',async()=>{
+ await withBrowser(async browser=>{
+  const result=browser.audio.previewCount('standard');
+  const [utterance]=browser.utterances;
+  assert.equal(utterance.text,'하나, 둘, 셋, 넷');
+  assert.equal(utterance.voice,standardVoice);
+  assert.equal(utterance.pitch,1);
+  assert.equal(browser.carrierPlayCalls,0);
+  utterance.onend();
+  assert.equal(await result,true);
+ });
+});
+
+test('the AI preview plays its own clip while workout counts preload and counts past 20 use device speech',async()=>{
+ await withBrowser(async browser=>{
+  assert.equal(await browser.audio.previewCount('trainer'),true);
+  assert.equal(browser.sources[0].buffer.bytes,'preview.mp3');
+  assert.equal(browser.carrierPlayCalls,0);
+  assert.equal(browser.audio.countVoices()[0].label,'남성 트레이너 (AI 음성)');
+  browser.audio.silence();
+  assert.equal(browser.sources[0].stopped,true);
+  await browser.audio.unlock('trainer');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(await browser.audio.count(20,'trainer'),true);
+  const countClip=browser.sources[1];
+  assert.equal(countClip.buffer.bytes,'20.mp3');
+  assert.equal(browser.audio.cue(0),true);
+  assert.equal(countClip.stopped,undefined);
+  countClip.onended();
+  const fallback=browser.audio.count(21,'trainer','내리기');
+  const [utterance]=browser.utterances;
+  assert.equal(utterance.text,'스물하나. 내리기');
+  assert.equal(utterance.voice,maleVoice);
+  utterance.onend();
+  assert.equal(await fallback,true);
+ },{clips:['20.mp3','preview.mp3']});
 });

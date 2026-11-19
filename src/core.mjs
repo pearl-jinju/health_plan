@@ -1,4 +1,5 @@
 import {tempoPhases,tempoProfile} from './tempo.mjs';
+import {defaultCountVoice,normalizeCountVoice} from './count-voice.mjs';
 
 export const exercises = {
  bench: ['벤치프레스','가슴','바벨','양손 합계',1,2.5,'수평 밀기'],
@@ -22,12 +23,12 @@ export const routines = {'가슴만':['bench','incline','fly'],'가슴·삼두':
 export const replacements = key => Object.keys(exercises).filter(id => exercises[id][1]===exercises[key][1] && exercises[id][6]===exercises[key][6]);
 export const current = session => session?.sets[session.index];
 export const token = session => session && [session.id,current(session)?.id,session.phase,session.version].join('/');
-export function createSession(plans, {id,date,rest=60,cues=false}) {
+export function createSession(plans, {id,date,rest=60,cues=false,countVoice=defaultCountVoice}) {
  const sets=plans.flatMap(({exercise,sets,tempo})=>{
   const seconds=tempoProfile(exercise,tempo).map(phase=>phase.seconds);
   return sets.map(({weight,reps},i)=>({exercise,number:i+1,weight,reps,tempo:seconds}));
  }).map((set,i)=>({...set,id:id+'/'+i}));
- return {id,date,rest,cues,phase:'ready',index:0,rep:0,motion:null,version:0,rests:0,sets};
+ return {id,date,rest,cues,countVoice:normalizeCountVoice(countVoice),phase:'ready',index:0,rep:0,motion:null,version:0,rests:0,sets};
 }
 export function advance(s, action, now=Date.now()) {
  if (!s || (action.token && action.token!==token(s)) || ['done','stopped'].includes(s.phase)) return s;

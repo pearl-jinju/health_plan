@@ -4,6 +4,13 @@ import {createSession,advance,token,restored,volume,recommend,statistics,revise,
 import {swipeDirection,tempoPhases,tempoProfile} from './tempo.mjs';
 const prepare=(id='a',date='2026-11-18',exercise='bench')=>createSession([{exercise,sets:Array.from({length:3},()=>({weight:40,reps:10}))}],{id,date});
 const make=(...input)=>advance(prepare(...input),{type:'next'},0);
+test('a workout snapshots the selected count voice and defaults to trainer for older settings',()=>{
+ const settings={id:'voice',date:'2026-11-18',countVoice:'browser:korean-device'};
+ const session=createSession([{exercise:'bench',sets:[{weight:40,reps:10}]}],settings);
+ settings.countVoice='standard';
+ assert.equal(session.countVoice,'browser:korean-device');
+ assert.equal(make().countVoice,'trainer');
+});
 const pulse=(s,now=s.motion?.deadline??0)=>advance(s,{type:'tick'},now);
 const count=s=>{
  while(s.phase==='count')s=pulse(s);

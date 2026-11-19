@@ -23,7 +23,7 @@ input[type=checkbox]{accent-color:var(--lime);width:17px;height:17px;vertical-al
 .setup-top label,.set-controls label,.record-select{display:flex;align-items:center;min-width:0;gap:5px;font-size:.86rem;white-space:nowrap}
 .setup-top select,.set-controls select,.record-select select{min-width:0;width:100%}
 .current-plan>label:first-child{align-self:center;min-height:40px}
-.setup-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.setup-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 .setup-tabs button{min-height:40px}
 .set-controls,.set-steps,.setup-extras{display:flex;align-items:center;gap:6px;justify-content:space-between}
 .set-controls label{flex:1 1 130px}.set-steps{flex:0 0 auto;font-size:.85rem;white-space:nowrap}
@@ -46,12 +46,18 @@ input[type=checkbox]{accent-color:var(--lime);width:17px;height:17px;vertical-al
 .tempo-fields label{display:grid;gap:4px;font-size:.9rem}
 .tempo-fields select{width:100%}
 .tempo-actions{display:flex;gap:7px 12px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:.86rem}
+.count-voice-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.count-voice-controls select{width:100%;min-width:0;text-overflow:ellipsis}
+.count-voice p{font-size:.9rem}
 .motion-label{color:var(--lime);font-size:1.24rem;font-weight:700;margin-top:8px}
 .counter,.ready-prompt{text-align:center;display:grid;flex:1;min-height:160px;place-content:center}
 .counter strong{font-size:clamp(4.2rem,23vw,8.2rem);line-height:1;color:var(--lime);font-variant-numeric:tabular-nums}
 .ready-prompt strong{font-size:1.2rem;color:var(--lime)}
 .summary-total{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .summary-total span{color:var(--sub)}
+.summary-ad:not([hidden]){display:grid;justify-items:center}
+.summary-ad.has-creative{margin-top:24px;gap:4px}
+.summary-ad.has-creative::before{content:'광고';color:var(--sub);font-size:.78rem}
 .option-page button{margin-top:9px}.option-page p{margin:6px 0}
 .option-page meter{display:block;width:100%;margin-top:7px}
 .week{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;gap:4px}.week strong{display:block;color:var(--lime);margin-top:4px}
