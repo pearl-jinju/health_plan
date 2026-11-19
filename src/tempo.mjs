@@ -27,5 +27,5 @@ export function tempoProfile(exercise,overrides){
 }
 export const tempoPhases=(exercise,overrides)=>tempoProfile(exercise,overrides).filter(phase=>phase.seconds>0);
 export function swipeDirection(x,y){
- return Math.abs(x)>=36&&Math.abs(x)>=Math.abs(y)*1.4?Math.sign(x):0;
+ return Math.abs(x)>=36&&Math.abs(x)>=Math.abs(y)*1.4?-Math.sign(x):0;
 }

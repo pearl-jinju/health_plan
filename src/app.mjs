@@ -27,15 +27,32 @@ function chooseRoutine(value){
  setupTab='goal';
 }
 chooseRoutine(routine);
+const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
+const adjustAnimations=new WeakMap();
+function adjustedValue(field,value,key,scope,direction){
+ if(field==='reps'&&scope!=='plan')return Math.max(0,Math.min(999,value+direction));
+ return adjust({[field]:value},field,direction,key)[field];
+}
+function readout(field,value,key,scope){
+ const format=n=>field==='weight'?weightLabel(key,n):n+'회';
+ const neighbor=direction=>{
+  const next=adjustedValue(field,value,key,scope,direction);
+  return next===value?'':format(next);
+ };
+ return [neighbor(-1),format(value),neighbor(1)];
+}
 function adjuster(field,value,key,scope){
  if(field==='weight'&&exercises[key][5]===null)return '<div class="card">맨몸</div>';
  const weight=field==='weight';
  const label=weight?'무게':'횟수';
  const step=weight?exercises[key][5]+'kg':'1회';
  const control=(direction,symbol,verb)=>'<button type="button" data-action="delta:'+scope+':'+field+':'+direction+'" aria-label="'+label+' '+step+' '+verb+'">'+symbol+'</button>';
+ const values=readout(field,value,key,scope);
  return '<section class="adjust card" data-swipe="'+scope+':'+field+'"><small>'+label+'</small><div class="adjust-controls">'+
- control(-1,'−','줄이기')+'<div class="swipe-reading" aria-live="polite"><strong>'+(weight?weightLabel(key,value):value+'회')+
- '</strong><span>‹　좌우로 밀기　›</span></div>'+control(1,'＋','늘리기')+'</div><small class="adjust-step">한 칸 '+step+'</small></section>';
+ control(-1,'−','줄이기')+'<div class="swipe-reading"><div class="swipe-window" aria-hidden="true"><div class="swipe-track">'+
+ values.map((text,i)=>'<strong data-swipe-slot="'+(i-1)+'">'+text+'</strong>').join('')+'</div></div>'+
+ '<span class="swipe-hint">← 증가 · 감소 →</span><span class="swipe-live" aria-live="polite">'+values[1]+'</span></div>'+
+ control(1,'＋','늘리기')+'</div><small class="adjust-step">한 칸 '+step+'</small></section>';
 }
 function tempoSettings(key){
  const profile=tempoProfile(key,exerciseTempos[key]);
@@ -205,12 +222,43 @@ async function dispatch(action){
   notify('저장 실패 · '+error.message+' 새로고침해 기록을 확인하세요.');
  }finally{busy=false;}
 }
-function delta(scope,field,direction){
+function settleAdjuster(tile){
+ const pending=adjustAnimations.get(tile);
+ if(!pending)return;
+ adjustAnimations.delete(tile);
+ pending.sync();
+ pending.animation.cancel();
+}
+function moveAdjuster(tile,direction,sync=()=>{}){
+ const track=tile.querySelector('.swipe-track');
+ const width=track.clientWidth;
+ const offset=parseFloat(tile.style.getPropertyValue('--swipe-offset'))||0;
+ tile.style.removeProperty('--swipe-offset');
+ if(!width||reducedMotion.matches||(!direction&&!offset)){sync();return;}
+ const animation=track.animate([
+  {transform:'translate3d('+(-width+offset)+'px,0,0)'},
+  {transform:'translate3d('+(-width*(1+direction))+'px,0,0)'}
+ ],{duration:direction?220:170,easing:'cubic-bezier(.2,.72,.3,1)',fill:'forwards'});
+ adjustAnimations.set(tile,{animation,sync});
+ animation.onfinish=()=>{if(adjustAnimations.get(tile)?.animation===animation)settleAdjuster(tile);};
+}
+function delta(tile,direction){
+ settleAdjuster(tile);
+ const [scope,field]=tile.dataset.swipe.split(':');
  const plan=plans[editPlan];
- if(scope==='plan')plan.sets[editSet]=adjust(plan.sets[editSet],field,direction,plan.exercise);
- if(scope==='actual')draft=field==='reps'?{...draft,reps:Math.max(0,Math.min(999,draft.reps+direction))}:adjust(draft,field,direction,current(data.active).exercise);
- if(scope==='past')detail.set=field==='reps'?{...detail.set,reps:Math.max(0,Math.min(999,detail.set.reps+direction))}:adjust(detail.set,field,direction,detail.set.exercise);
- render();
+ const state=scope==='plan'?plan.sets[editSet]:scope==='actual'?draft:detail.set;
+ const key=scope==='plan'?plan.exercise:scope==='actual'?current(data.active).exercise:state.exercise;
+ const next=adjustedValue(field,state[field],key,scope,direction);
+ if(next===state[field]){moveAdjuster(tile,0);return;}
+ const updated={...state,[field]:next};
+ if(scope==='plan')plan.sets[editSet]=updated;
+ else if(scope==='actual')draft=updated;
+ else detail.set=updated;
+ const values=readout(field,next,key,scope);
+ tile.querySelector('.swipe-live').textContent=values[1];
+ moveAdjuster(tile,direction,()=>{
+  tile.querySelectorAll('[data-swipe-slot]').forEach((item,i)=>{item.textContent=values[i];});
+ });
 }
 document.addEventListener('click',async event=>{
  const el=event.target.closest('[data-action]');
@@ -228,7 +276,7 @@ document.addEventListener('click',async event=>{
   if(a==='1'&&sets.length<12)sets.push({...sets[0]});
   if(a==='-1'&&sets.length>1)sets.pop();
   editSet=Math.min(editSet,sets.length-1);
- }else if(action==='delta'){delta(a,b,Number(c));return;}
+ }else if(action==='delta'){delta(el.closest('[data-swipe]'),Number(c));return;}
  else if(action==='apply'){
   const sets=plans[editPlan].sets;
   for(let i=editSet+1;i<sets.length;i++)sets[i]={...sets[editSet]};
@@ -304,7 +352,11 @@ root.addEventListener('pointerdown',event=>{
  if(!event.isPrimary||event.button!==0||busy)return;
  swallowClickUntil=0;
  const tile=event.target.closest('[data-swipe]');
- if(tile)pointer={id:event.pointerId,x:event.clientX,y:event.clientY,tile,dragging:false};
+ if(tile){
+  settleAdjuster(tile);
+  const track=tile.querySelector('.swipe-track');
+  pointer={id:event.pointerId,x:event.clientX,y:event.clientY,tile,width:track.clientWidth,slots:track.children,dragging:false};
+ }
 });
 document.addEventListener('pointermove',event=>{
  if(pointer?.id!==event.pointerId)return;
@@ -315,24 +367,25 @@ document.addEventListener('pointermove',event=>{
   pointer.dragging=true;
   if(pointer.tile.isConnected)pointer.tile.setPointerCapture(event.pointerId);
  }
- pointer.tile.classList.add('dragging');
- pointer.tile.style.setProperty('--swipe-offset',Math.max(-24,Math.min(24,x*.28))+'px');
+ if(reducedMotion.matches)return;
+ const hasNeighbor=pointer.slots[x<0?2:0].textContent!=='';
+ const limit=hasNeighbor?pointer.width:pointer.width*.16;
+ const offset=hasNeighbor?x:x*.2;
+ pointer.tile.style.setProperty('--swipe-offset',Math.max(-limit,Math.min(limit,offset))+'px');
 });
 function finishSwipe(event,commit){
  if(pointer?.id!==event.pointerId)return;
  const start=pointer;
  pointer=null;
- start.tile.classList.remove('dragging');
- start.tile.style.removeProperty('--swipe-offset');
- if(!commit||!start.tile.isConnected||busy)return;
- const direction=swipeDirection(event.clientX-start.x,event.clientY-start.y);
- if(!direction)return;
- swallowClickUntil=Date.now()+350;
- const [scope,field]=start.tile.dataset.swipe.split(':');
- delta(scope,field,direction);
+ if(!start.tile.isConnected||!start.dragging)return;
+ if(commit)swallowClickUntil=Date.now()+350;
+ const direction=commit&&!busy?swipeDirection(event.clientX-start.x,event.clientY-start.y):0;
+ if(direction)delta(start.tile,direction);
+ else moveAdjuster(start.tile,0);
 }
 document.addEventListener('pointercancel',event=>finishSwipe(event,false));
 document.addEventListener('pointerup',event=>finishSwipe(event,true));
+document.addEventListener('lostpointercapture',event=>{if(pointer?.tile===event.target)finishSwipe(event,false);});
 setInterval(()=>{
  if(data?.active?.phase==='rest'){
   const el=document.querySelector('#counter');

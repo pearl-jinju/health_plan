@@ -33,10 +33,13 @@ input[type=checkbox]{accent-color:var(--lime);width:17px;height:17px;vertical-al
 .adjust-pair{display:grid;gap:8px}.adjust{touch-action:pan-y pinch-zoom;user-select:none;padding:7px 10px}
 .adjust-controls{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center}
 .adjust button{min-width:47px;min-height:44px;font-size:1.25rem;padding-inline:5px}
-.swipe-reading{display:grid;justify-items:center;min-width:0;transform:translateX(var(--swipe-offset,0));transition:transform .15s ease;cursor:ew-resize}
-.dragging .swipe-reading{transition:none;color:var(--lime)}
-.adjust strong{font-size:clamp(1.25rem,6vw,1.8rem);font-variant-numeric:tabular-nums;text-align:center}
-.swipe-reading span,.adjust-step{color:var(--sub);font-size:.78rem}
+.swipe-reading{display:grid;justify-items:center;min-width:0;cursor:ew-resize}
+.swipe-window{width:100%;overflow:hidden}
+.swipe-track{display:flex;width:100%;transform:translate3d(calc(-100% + var(--swipe-offset,0px)),0,0)}
+.swipe-track strong{flex:0 0 100%;font-size:clamp(1.2rem,6vw,1.8rem);font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap}
+.swipe-hint,.adjust-step{color:var(--sub);font-size:.78rem}
+.swipe-hint{white-space:nowrap;font-size:clamp(.65rem,3vw,.78rem)}
+.swipe-live{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .adjust-step{display:block;margin-top:0;text-align:center}
 .tempo h3{margin:0;font-size:1.13rem}.tempo p{margin:6px 0 12px}
 .tempo-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
@@ -61,4 +64,3 @@ input[type=checkbox]{accent-color:var(--lime);width:17px;height:17px;vertical-al
  .set-controls select,.set-steps button,.setup-top select{min-height:40px;padding-block:5px}
  .actions .accent{min-height:46px}
 }
-@media(prefers-reduced-motion:reduce){.swipe-reading{transition:none}}

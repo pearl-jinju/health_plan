@@ -143,9 +143,9 @@ test('a delayed cue starts only a single phase and pause preserves its remaining
  assert.equal(s.motion.index,2);
  assert.equal(s.rep,1);
 });
-test('one horizontal sweep has one direction and a vertical sweep has none',()=>{
- assert.equal(swipeDirection(120,5),1);
- assert.equal(swipeDirection(-70,10),-1);
+test('a left swipe increases, a right swipe decreases, and vertical swipes do nothing',()=>{
+ assert.equal(swipeDirection(120,5),-1);
+ assert.equal(swipeDirection(-70,10),1);
  assert.equal(swipeDirection(18,4),0);
  assert.equal(swipeDirection(55,70),0);
 });
